@@ -10,8 +10,8 @@ from collections import defaultdict
 def clean_name(name):
     name = name.lower().strip()
 
-    # remove [make-up]
-    name = re.sub(r"\[\s*make[\s-]?up\s*\]", "", name, flags=re.IGNORECASE)
+    # remove [make-up] and (make-up) variations
+    name = re.sub(r"[\[\(]\s*make[\s-]?up\s*[\]\)]", "", name, flags=re.IGNORECASE)
 
     # remove other tags
     name = re.sub(r"\[.*?\]", "", name)
@@ -228,6 +228,12 @@ def generate_html(players, files, title, min_games, trophy_count):
             class_cells.append(f"{format_score(w)}/{g} ({wr:.1f}%){symbol}")
 
         total_wr = (total_wins / total_games * 100) if total_games else 0
+
+        # --------------------------------------------------
+        # FIX: remove 0-game players entirely
+        # --------------------------------------------------
+        if total_games == 0:
+            continue
 
         row = (name.title(), total_wins, total_games, total_wr, class_cells)
 
