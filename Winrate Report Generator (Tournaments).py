@@ -114,20 +114,18 @@ def get_trophy_winners(players, files, limit):
 
         for name, classes in players.items():
 
-            # ONLY THIS TOURNAMENT
             data = classes.get(cls, {"wins": 0, "games": 0})
-            points = data["wins"]      # total points in THIS tournament
+
+            points = data["wins"]   # THIS is 5.5 / 6 style score
             games = data["games"]
 
             if games == 0:
                 continue
 
-            # SCORE ONLY (NO WINRATE)
             ranking.append((points, games, name))
 
-        # Sort by:
-        # 1. points (desc)
-        # 2. games (desc) as tie-break
+        # IMPORTANT:
+        # sort by POINTS only (then games as tie-break)
         ranking.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
         top = ranking[:limit]
@@ -304,7 +302,7 @@ tr:nth-child(even) {{
     # --------------------------------------------------
     # LEADERBOARD
     # --------------------------------------------------
-    html += "<h2>🏆 Leaderboard</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
+    html += "<h2>🏆 Winrate Leaderboard</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
 
     for cls in files:
         html += f"<th>{clean_filename(cls)}</th>"
