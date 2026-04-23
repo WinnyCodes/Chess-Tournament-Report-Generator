@@ -137,7 +137,9 @@ def get_trophy_winners(players, files, limit):
 # --------------------------------------------------
 def get_stream_winners(players, files, excluded, min_games):
 
-    # build GLOBAL totals
+    # -----------------------------
+    # GLOBAL STATS (once only)
+    # -----------------------------
     global_stats = {}
 
     for name, classes in players.items():
@@ -150,29 +152,44 @@ def get_stream_winners(players, files, excluded, min_games):
             total_w += data["wins"]
             total_g += data["games"]
 
-        if total_g > 0:
+        if total_g >= min_games:
             global_stats[name] = (total_w, total_g, (total_w / total_g) * 100)
 
     stream_results = []
 
+    # -----------------------------
+    # PER STREAM RANKING
+    # -----------------------------
     for cls in files:
 
-        best_wr = -1
-        winners = []
+        stream_candidates = []
 
         for name, (w, g, wr) in global_stats.items():
 
             if name in excluded:
                 continue
 
-            if g < min_games:
+            # must have played THIS stream
+            stream_games = players[name][cls]["games"]
+            if stream_games == 0:
                 continue
 
-            if wr > best_wr:
-                best_wr = wr
-                winners = [(name, wr, w, g)]
-            elif wr == best_wr:
-                winners.append((name, wr, w, g))
+            stream_candidates.append((wr, w, g, name))
+
+        # sort by GLOBAL winrate
+        stream_candidates.sort(reverse=True)
+
+        if not stream_candidates:
+            stream_results.append((cls, [], 0))
+            continue
+
+        best_wr = stream_candidates[0][0]
+
+        winners = [
+            (name, wr, w, g)
+            for wr, w, g, name in stream_candidates
+            if wr == best_wr
+        ]
 
         stream_results.append((cls, winners, best_wr))
 
