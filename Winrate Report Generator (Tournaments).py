@@ -10,11 +10,11 @@ from collections import defaultdict
 def clean_name(name):
     name = name.lower().strip()
 
-    # remove [make-up] and (make-up) variations
+    # remove [make-up] or (make-up)
     name = re.sub(r"[\[\(]\s*make[\s-]?up\s*[\]\)]", "", name, flags=re.IGNORECASE)
 
     # remove other tags
-    name = re.sub(r"\[.*?\]", "", name)
+    name = re.sub(r"[\[\(].*?[\]\)]", "", name)
 
     # normalize commas
     name = re.sub(r"\s*,\s*", ",", name)
@@ -29,11 +29,13 @@ def clean_name(name):
 
     return name.title().strip()
 
+
 # --------------------------------------------------
 # FORMAT SCORE
 # --------------------------------------------------
 def format_score(x):
     return str(int(x)) if float(x).is_integer() else str(x)
+
 
 # --------------------------------------------------
 # CLEAN FILE NAME
@@ -42,6 +44,7 @@ def clean_filename(path):
     name = os.path.basename(path)
     name = re.sub(r"\.html?$", "", name, flags=re.IGNORECASE)
     return name
+
 
 # --------------------------------------------------
 # PARSE FILES
@@ -100,8 +103,9 @@ def parse_files(files):
 
     return players
 
+
 # --------------------------------------------------
-# TROPHY + EXCLUSION LOGIC
+# TROPHY LOGIC (POINTS ONLY)
 # --------------------------------------------------
 def get_trophy_winners(players, files, limit):
 
@@ -115,8 +119,7 @@ def get_trophy_winners(players, files, limit):
         for name, classes in players.items():
 
             data = classes.get(cls, {"wins": 0, "games": 0})
-
-            points = data["wins"]   # THIS is 5.5 / 6 style score
+            points = data["wins"]
             games = data["games"]
 
             if games == 0:
@@ -124,8 +127,7 @@ def get_trophy_winners(players, files, limit):
 
             ranking.append((points, games, name))
 
-        # IMPORTANT:
-        # sort by POINTS only (then games as tie-break)
+        # sort by points then games
         ranking.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
         top = ranking[:limit]
@@ -137,8 +139,9 @@ def get_trophy_winners(players, files, limit):
 
     return trophy_data, excluded
 
+
 # --------------------------------------------------
-# STREAM WINNERS (HIGH % AWARD)
+# HIGH % AWARDS (WINRATE ONLY)
 # --------------------------------------------------
 def get_stream_winners(players, files, excluded):
 
@@ -172,6 +175,7 @@ def get_stream_winners(players, files, excluded):
         stream_results.append((cls, winners, best_wr))
 
     return stream_results
+
 
 # --------------------------------------------------
 # GENERATE HTML
@@ -231,12 +235,6 @@ def generate_html(players, files, title, min_games, trophy_count):
 
         total_wr = (total_wins / total_games * 100) if total_games else 0
 
-        # --------------------------------------------------
-        # FIX: remove 0-game players entirely
-        # --------------------------------------------------
-        if total_games == 0:
-            continue
-
         row = (name.title(), total_wins, total_games, total_wr, class_cells)
 
         if total_games >= min_games:
@@ -251,7 +249,7 @@ def generate_html(players, files, title, min_games, trophy_count):
     stream_winners = get_stream_winners(players, files, excluded)
 
     # --------------------------------------------------
-    # HTML START
+    # HTML
     # --------------------------------------------------
     html = f"""
 <html>
@@ -300,9 +298,10 @@ tr:nth-child(even) {{
 """
 
     # --------------------------------------------------
-    # LEADERBOARD
+    # WINRATE LEADERBOARD
     # --------------------------------------------------
-    html += "<h2>🏆 Winrate Leaderboard</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
+    html += "<h2>📊 Winrate Leaderboard (Overall)</h2>"
+    html += "<table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
 
     for cls in files:
         html += f"<th>{clean_filename(cls)}</th>"
@@ -323,61 +322,25 @@ tr:nth-child(even) {{
     html += "</table>"
 
     # --------------------------------------------------
-    # INELIGIBLE
+    # TROPHIES
     # --------------------------------------------------
-    html += "<h2>📋 Ineligible Players</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
-
-    for cls in files:
-        html += f"<th>{clean_filename(cls)}</th>"
-
-    html += "</tr>"
-
-    rank = 1
-    for name, wins, games, wr, cells in ineligible:
-
-        html += f"<tr><td>{rank}</td><td class='name'>{name}</td><td>{wr:.1f}%</td><td>{format_score(wins)}</td><td>{games}</td>"
-
-        for c in cells:
-            html += f"<td>{c}</td>"
-
-        html += "</tr>"
-        rank += 1
-
-    html += "</table>"
-
-    # --------------------------------------------------
-    # RULES
-    # --------------------------------------------------
-    html += f"""
-<p style="text-align:center;">
-Players must play at least <b>{min_games}</b> games to appear on the leaderboard.
-</p>
-
-<p style="text-align:center; font-size:12px; color:#555;">
-* = Primary stream (most games played; tie-break by winrate)
-</p>
-"""
-
-    # --------------------------------------------------
-    # TROPHIES TABLE
-    # --------------------------------------------------
-    html += "<h2>🏆 Tournament Trophies</h2>"
-    html += "<table><tr><th>Stream</th><th>Rank</th><th>Player</th><th>Score</th><th>Win %</th></tr>"
+    html += "<h2>🏆 Tournament Trophies </h2>"
+    html += "<table><tr><th>Stream</th><th>Rank</th><th>Player</th><th>Score</th></tr>"
 
     for cls, top in trophy_data:
 
         stream_name = clean_filename(cls)
         rank = 1
 
-        for wr, w, g, name in top:
+        for points, games, name in top:
 
-            html += f"<tr><td>{stream_name}</td><td>{rank}</td><td>{name}</td><td>{format_score(w)}/{g}</td><td>{wr:.1f}%</td></tr>"
+            html += f"<tr><td>{stream_name}</td><td>{rank}</td><td>{name}</td><td>{format_score(points)}/{games}</td></tr>"
             rank += 1
 
     html += "</table>"
 
     # --------------------------------------------------
-    # HIGH % AWARDS
+    # HIGH %
     # --------------------------------------------------
     html += "<h2>🎯 High Percentage Awards</h2>"
     html += "<table><tr><th>Stream</th><th>Top Player(s)</th></tr>"
@@ -387,12 +350,27 @@ Players must play at least <b>{min_games}</b> games to appear on the leaderboard
         names = "<br>".join([f"{n} ({w:.1f}%)" for n, w in winners])
         html += f"<tr><td>{clean_filename(cls)}</td><td>{names}</td></tr>"
 
-    html += "</table></body></html>"
+    html += "</table>"
+    html += f"""
+    <br><br>
+
+    <p style="text-align:center;">
+    Players must play at least <b>{min_games}</b> games to appear on the leaderboard.
+    </p>
+
+    <p style="text-align:center; font-size:12px; color:#555;">
+    * = Primary stream (most games played; tie-break by winrate)
+    </p>
+    """
+    
+    html += "</body></html>"
+    
 
     return html
 
+
 # --------------------------------------------------
-# GUI
+# RUN APP
 # --------------------------------------------------
 def run_app():
 
@@ -421,6 +399,6 @@ def run_app():
 
     messagebox.showinfo("Done", f"Report generated:\n{output_file}")
 
-# --------------------------------------------------
+
 if __name__ == "__main__":
     run_app()
