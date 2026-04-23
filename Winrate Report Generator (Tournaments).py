@@ -133,55 +133,46 @@ def get_trophy_winners(players, files, limit):
 
 
 # --------------------------------------------------
-# HIGH % AWARDS (PER STREAM SELECTION, TOTAL DISPLAY)
+# HIGH % AWARDS (GLOBAL LOGIC FIXED)
 # --------------------------------------------------
 def get_stream_winners(players, files, excluded, min_games):
+
+    # build GLOBAL totals
+    global_stats = {}
+
+    for name, classes in players.items():
+
+        total_w = 0
+        total_g = 0
+
+        for f in files:
+            data = classes.get(f, {"wins": 0, "games": 0})
+            total_w += data["wins"]
+            total_g += data["games"]
+
+        if total_g > 0:
+            global_stats[name] = (total_w, total_g, (total_w / total_g) * 100)
 
     stream_results = []
 
     for cls in files:
 
-        candidates = []
+        best_wr = -1
+        winners = []
 
-        for name, classes in players.items():
+        for name, (w, g, wr) in global_stats.items():
 
-            # exclude trophy winners
             if name in excluded:
                 continue
 
-            # total stats across ALL streams
-            total_w = 0
-            total_g = 0
-
-            for f in files:
-                d = classes.get(f, {"wins": 0, "games": 0})
-                total_w += d["wins"]
-                total_g += d["games"]
-
-            if total_g < min_games:
+            if g < min_games:
                 continue
 
-            if total_g == 0:
-                continue
-
-            global_wr = (total_w / total_g) * 100
-
-            candidates.append((global_wr, total_g, total_w, name))
-
-        if not candidates:
-            stream_results.append((cls, [], 0))
-            continue
-
-        # rank by GLOBAL winrate, then games
-        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
-
-        best_wr = candidates[0][0]
-
-        winners = [
-            (n, wr, w, g)
-            for wr, g, w, n in candidates
-            if wr == best_wr
-        ]
+            if wr > best_wr:
+                best_wr = wr
+                winners = [(name, wr, w, g)]
+            elif wr == best_wr:
+                winners.append((name, wr, w, g))
 
         stream_results.append((cls, winners, best_wr))
 
@@ -196,13 +187,10 @@ def generate_html(players, files, title, min_games, trophy_count):
     eligible = []
     ineligible = []
 
-    # store totals once (IMPORTANT FIX)
-    totals = {}
-
     for name, classes in players.items():
 
-        total_w = 0
-        total_g = 0
+        total_wins = 0
+        total_games = 0
         class_cells = []
 
         best_games = -1
@@ -234,8 +222,8 @@ def generate_html(players, files, title, min_games, trophy_count):
             w = data["wins"]
             g = data["games"]
 
-            total_w += w
-            total_g += g
+            total_wins += w
+            total_games += g
 
             if g == 0:
                 class_cells.append("")
@@ -246,13 +234,11 @@ def generate_html(players, files, title, min_games, trophy_count):
 
             class_cells.append(f"{format_score(w)}/{g} ({wr:.1f}%){symbol}")
 
-        totals[name] = (total_w, total_g)
+        total_wr = (total_wins / total_games * 100) if total_games else 0
 
-        total_wr = (total_w / total_g * 100) if total_g else 0
+        row = (name.title(), total_wins, total_games, total_wr, class_cells)
 
-        row = (name.title(), total_w, total_g, total_wr, class_cells)
-
-        if total_g >= min_games:
+        if total_games >= min_games:
             eligible.append(row)
         else:
             ineligible.append(row)
@@ -302,7 +288,9 @@ tr:nth-child(even) {{ background: #fafafa; }}
 <h1>🏆 {title}</h1>
 """
 
+    # --------------------------------------------------
     # WINRATE LEADERBOARD
+    # --------------------------------------------------
     html += "<h2>📊 Winrate Leaderboard</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
 
     for cls in files:
@@ -323,7 +311,9 @@ tr:nth-child(even) {{ background: #fafafa; }}
 
     html += "</table>"
 
+    # --------------------------------------------------
     # INELIGIBLE
+    # --------------------------------------------------
     html += "<h2>📋 Ineligible Players</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th></tr>"
 
     rank = 1
@@ -333,7 +323,9 @@ tr:nth-child(even) {{ background: #fafafa; }}
 
     html += "</table>"
 
+    # --------------------------------------------------
     # TROPHIES
+    # --------------------------------------------------
     html += "<h2>🏆 Tournament Trophies</h2><table><tr><th>Stream</th><th>Rank</th><th>Player</th><th>Score</th></tr>"
 
     for cls, top in trophy_data:
@@ -345,7 +337,9 @@ tr:nth-child(even) {{ background: #fafafa; }}
 
     html += "</table>"
 
+    # --------------------------------------------------
     # HIGH %
+    # --------------------------------------------------
     html += "<h2>🎯 High Percentage Awards</h2><table><tr><th>Stream</th><th>Top Player(s)</th></tr>"
 
     for cls, winners, wr in stream_winners:
@@ -354,9 +348,8 @@ tr:nth-child(even) {{ background: #fafafa; }}
             continue
 
         names = "<br>".join([
-            f"{n} — {format_score(totals[n][0])}/{totals[n][1]} "
-            f"({(totals[n][0] / totals[n][1] * 100) if totals[n][1] else 0:.1f}%)"
-            for n, w in winners
+            f"{n} — {format_score(w)}/{g} ({wr2:.1f}%)"
+            for n, wr2, w, g in winners
         ])
 
         html += f"<tr><td>{clean_filename(cls)}</td><td>{names}</td></tr>"
