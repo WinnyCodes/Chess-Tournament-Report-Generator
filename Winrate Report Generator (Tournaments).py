@@ -114,23 +114,27 @@ def get_trophy_winners(players, files, limit):
 
         for name, classes in players.items():
 
+            # ONLY THIS TOURNAMENT
             data = classes.get(cls, {"wins": 0, "games": 0})
-            w = data["wins"]
-            g = data["games"]
+            points = data["wins"]      # total points in THIS tournament
+            games = data["games"]
 
-            if g == 0:
+            if games == 0:
                 continue
 
-            wr = (w / g) * 100
-            ranking.append((wr, w, g, name))
+            # SCORE ONLY (NO WINRATE)
+            ranking.append((points, games, name))
 
-        ranking.sort(reverse=True)
+        # Sort by:
+        # 1. points (desc)
+        # 2. games (desc) as tie-break
+        ranking.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
         top = ranking[:limit]
 
         trophy_data.append((cls, top))
 
-        for _, _, _, name in top:
+        for _, _, name in top:
             excluded.add(name)
 
     return trophy_data, excluded
