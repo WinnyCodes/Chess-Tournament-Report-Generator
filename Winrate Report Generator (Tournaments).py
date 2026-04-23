@@ -1,0 +1,418 @@
+import re
+import os
+import tkinter as tk
+from tkinter import filedialog, simpledialog, messagebox
+from collections import defaultdict
+
+# --------------------------------------------------
+# CLEAN NAME
+# --------------------------------------------------
+def clean_name(name):
+    name = name.lower().strip()
+
+    # remove [make-up]
+    name = re.sub(r"\[\s*make[\s-]?up\s*\]", "", name, flags=re.IGNORECASE)
+
+    # remove other tags
+    name = re.sub(r"\[.*?\]", "", name)
+
+    # normalize commas
+    name = re.sub(r"\s*,\s*", ",", name)
+
+    # convert "last, first" → "first last"
+    if "," in name:
+        parts = [p.strip() for p in name.split(",")]
+        if len(parts) == 2:
+            name = f"{parts[1]} {parts[0]}"
+
+    name = re.sub(r"\s+", " ", name)
+
+    return name.title().strip()
+
+# --------------------------------------------------
+# FORMAT SCORE
+# --------------------------------------------------
+def format_score(x):
+    return str(int(x)) if float(x).is_integer() else str(x)
+
+# --------------------------------------------------
+# CLEAN FILE NAME
+# --------------------------------------------------
+def clean_filename(path):
+    name = os.path.basename(path)
+    name = re.sub(r"\.html?$", "", name, flags=re.IGNORECASE)
+    return name
+
+# --------------------------------------------------
+# PARSE FILES
+# --------------------------------------------------
+def parse_files(files):
+
+    players = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "games": 0}))
+
+    for file_name in files:
+        with open(file_name, encoding="utf-8") as f:
+            lines = f.readlines()
+
+        in_table = False
+
+        for line in lines:
+            line = line.strip()
+
+            if "Cross Table" in line:
+                in_table = True
+                continue
+
+            if not in_table:
+                continue
+
+            if "Swiss Perfect" in line:
+                break
+
+            parts = line.split()
+
+            if not parts or not parts[0].isdigit():
+                continue
+
+            name_parts = []
+            for p in parts[1:]:
+                if p.replace('.', '', 1).isdigit():
+                    break
+                name_parts.append(p)
+
+            if not name_parts:
+                continue
+
+            name = clean_name(" ".join(name_parts))
+
+            rounds = re.findall(r"(\d+|½):([WLD]?)", line)
+
+            for score, result in rounds:
+                if result == "" or score == "0":
+                    continue
+
+                players[name][file_name]["games"] += 1
+
+                if result == "W":
+                    players[name][file_name]["wins"] += 1
+                elif result == "D":
+                    players[name][file_name]["wins"] += 0.5
+
+    return players
+
+# --------------------------------------------------
+# TROPHY + EXCLUSION LOGIC
+# --------------------------------------------------
+def get_trophy_winners(players, files, limit):
+
+    trophy_data = []
+    excluded = set()
+
+    for cls in files:
+
+        ranking = []
+
+        for name, classes in players.items():
+
+            data = classes.get(cls, {"wins": 0, "games": 0})
+            w = data["wins"]
+            g = data["games"]
+
+            if g == 0:
+                continue
+
+            wr = (w / g) * 100
+            ranking.append((wr, w, g, name))
+
+        ranking.sort(reverse=True)
+
+        top = ranking[:limit]
+
+        trophy_data.append((cls, top))
+
+        for _, _, _, name in top:
+            excluded.add(name)
+
+    return trophy_data, excluded
+
+# --------------------------------------------------
+# STREAM WINNERS (HIGH % AWARD)
+# --------------------------------------------------
+def get_stream_winners(players, files, excluded):
+
+    stream_results = []
+
+    for cls in files:
+
+        best_wr = -1
+        winners = []
+
+        for name, classes in players.items():
+
+            if name in excluded:
+                continue
+
+            data = classes.get(cls, {"wins": 0, "games": 0})
+            w = data["wins"]
+            g = data["games"]
+
+            if g == 0:
+                continue
+
+            wr = (w / g) * 100
+
+            if wr > best_wr:
+                best_wr = wr
+                winners = [(name, wr)]
+            elif wr == best_wr:
+                winners.append((name, wr))
+
+        stream_results.append((cls, winners, best_wr))
+
+    return stream_results
+
+# --------------------------------------------------
+# GENERATE HTML
+# --------------------------------------------------
+def generate_html(players, files, title, min_games, trophy_count):
+
+    eligible = []
+    ineligible = []
+
+    for name, classes in players.items():
+
+        total_wins = 0
+        total_games = 0
+        class_cells = []
+
+        best_games = -1
+        best_wr = -1
+        best_indices = []
+
+        # main stream
+        for i, cls in enumerate(files):
+
+            data = classes.get(cls, {"wins": 0, "games": 0})
+            w = data["wins"]
+            g = data["games"]
+
+            wr = (w / g * 100) if g > 0 else 0
+
+            if g > best_games:
+                best_games = g
+                best_wr = wr
+                best_indices = [i]
+            elif g == best_games and g > 0:
+                if wr > best_wr:
+                    best_wr = wr
+                    best_indices = [i]
+                elif wr == best_wr:
+                    best_indices.append(i)
+
+        for i, cls in enumerate(files):
+
+            data = classes.get(cls, {"wins": 0, "games": 0})
+            w = data["wins"]
+            g = data["games"]
+
+            total_wins += w
+            total_games += g
+
+            if g == 0:
+                class_cells.append("")
+                continue
+
+            wr = (w / g) * 100
+            symbol = " *" if i in best_indices else ""
+
+            class_cells.append(f"{format_score(w)}/{g} ({wr:.1f}%){symbol}")
+
+        total_wr = (total_wins / total_games * 100) if total_games else 0
+
+        row = (name.title(), total_wins, total_games, total_wr, class_cells)
+
+        if total_games >= min_games:
+            eligible.append(row)
+        else:
+            ineligible.append(row)
+
+    eligible.sort(key=lambda x: x[3], reverse=True)
+    ineligible.sort(key=lambda x: x[3], reverse=True)
+
+    trophy_data, excluded = get_trophy_winners(players, files, trophy_count)
+    stream_winners = get_stream_winners(players, files, excluded)
+
+    # --------------------------------------------------
+    # HTML START
+    # --------------------------------------------------
+    html = f"""
+<html>
+<head>
+<title>{title}</title>
+
+<style>
+body {{
+    font-family: Arial;
+    padding: 20px;
+}}
+
+h1 {{
+    text-align: center;
+}}
+
+table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-bottom: 25px;
+}}
+
+th, td {{
+    border: 1px solid #ccc;
+    padding: 6px;
+    text-align: center;
+}}
+
+tr:nth-child(even) {{
+    background: #fafafa;
+}}
+
+.name {{
+    text-align: left;
+    font-weight: bold;
+    font-size: 16px;
+    width: 240px;
+}}
+</style>
+
+</head>
+<body>
+
+<h1>🏆 {title}</h1>
+"""
+
+    # --------------------------------------------------
+    # LEADERBOARD
+    # --------------------------------------------------
+    html += "<h2>🏆 Leaderboard</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
+
+    for cls in files:
+        html += f"<th>{clean_filename(cls)}</th>"
+
+    html += "</tr>"
+
+    rank = 1
+    for name, wins, games, wr, cells in eligible:
+
+        html += f"<tr><td>{rank}</td><td class='name'>{name}</td><td>{wr:.1f}%</td><td>{format_score(wins)}</td><td>{games}</td>"
+
+        for c in cells:
+            html += f"<td>{c}</td>"
+
+        html += "</tr>"
+        rank += 1
+
+    html += "</table>"
+
+    # --------------------------------------------------
+    # INELIGIBLE
+    # --------------------------------------------------
+    html += "<h2>📋 Ineligible Players</h2><table><tr><th>#</th><th>Name</th><th>Win %</th><th>Total Wins</th><th>Games</th>"
+
+    for cls in files:
+        html += f"<th>{clean_filename(cls)}</th>"
+
+    html += "</tr>"
+
+    rank = 1
+    for name, wins, games, wr, cells in ineligible:
+
+        html += f"<tr><td>{rank}</td><td class='name'>{name}</td><td>{wr:.1f}%</td><td>{format_score(wins)}</td><td>{games}</td>"
+
+        for c in cells:
+            html += f"<td>{c}</td>"
+
+        html += "</tr>"
+        rank += 1
+
+    html += "</table>"
+
+    # --------------------------------------------------
+    # RULES
+    # --------------------------------------------------
+    html += f"""
+<p style="text-align:center;">
+Players must play at least <b>{min_games}</b> games to appear on the leaderboard.
+</p>
+
+<p style="text-align:center; font-size:12px; color:#555;">
+* = Primary stream (most games played; tie-break by winrate)
+</p>
+"""
+
+    # --------------------------------------------------
+    # TROPHIES TABLE
+    # --------------------------------------------------
+    html += "<h2>🏆 Tournament Trophies</h2>"
+    html += "<table><tr><th>Stream</th><th>Rank</th><th>Player</th><th>Score</th><th>Win %</th></tr>"
+
+    for cls, top in trophy_data:
+
+        stream_name = clean_filename(cls)
+        rank = 1
+
+        for wr, w, g, name in top:
+
+            html += f"<tr><td>{stream_name}</td><td>{rank}</td><td>{name}</td><td>{format_score(w)}/{g}</td><td>{wr:.1f}%</td></tr>"
+            rank += 1
+
+    html += "</table>"
+
+    # --------------------------------------------------
+    # HIGH % AWARDS
+    # --------------------------------------------------
+    html += "<h2>🎯 High Percentage Awards</h2>"
+    html += "<table><tr><th>Stream</th><th>Top Player(s)</th></tr>"
+
+    for cls, winners, wr in stream_winners:
+
+        names = "<br>".join([f"{n} ({w:.1f}%)" for n, w in winners])
+        html += f"<tr><td>{clean_filename(cls)}</td><td>{names}</td></tr>"
+
+    html += "</table></body></html>"
+
+    return html
+
+# --------------------------------------------------
+# GUI
+# --------------------------------------------------
+def run_app():
+
+    root = tk.Tk()
+    root.withdraw()
+
+    title = simpledialog.askstring("Tournament Name", "Enter report name:")
+    min_games = simpledialog.askinteger("Minimum Games", "Enter minimum games required:", minvalue=1, initialvalue=7)
+
+    trophy_count = simpledialog.askinteger(
+        "Trophies Per Stream",
+        "How many top scorer trophies per stream?",
+        minvalue=1,
+        initialvalue=5
+    )
+
+    files = filedialog.askopenfilenames(title="Select tournament files", filetypes=[("HTML files", "*.htm *.html")])
+
+    players = parse_files(files)
+    html = generate_html(players, files, title, min_games, trophy_count)
+
+    output_file = title.replace(" ", "_") + ".html"
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    messagebox.showinfo("Done", f"Report generated:\n{output_file}")
+
+# --------------------------------------------------
+if __name__ == "__main__":
+    run_app()
