@@ -30,7 +30,6 @@ def clean_name(name):
     return name.title().strip()
 
 
-# --------------------------------------------------
 def format_score(x):
     return str(int(x)) if float(x).is_integer() else str(x)
 
@@ -133,9 +132,9 @@ def get_trophy_winners(players, files, limit):
 
 
 # --------------------------------------------------
-# HIGH % AWARDS (FIXED)
+# HIGH % AWARDS (FIXED - GLOBAL ELIGIBILITY)
 # --------------------------------------------------
-def get_stream_winners(players, files, excluded, min_games):
+def get_stream_winners(players, files, excluded, min_games, total_games_map):
 
     stream_results = []
 
@@ -146,10 +145,8 @@ def get_stream_winners(players, files, excluded, min_games):
 
         for name, classes in players.items():
 
-            # TOTAL GAMES ACROSS ALL STREAMS (FIXED BUG)
-            total_games = sum(classes.get(f, {"games": 0})["games"] for f in files)
-
-            if total_games < min_games:
+            # GLOBAL eligibility (FIXED)
+            if total_games_map.get(name, 0) < min_games:
                 continue
 
             if name in excluded:
@@ -182,6 +179,12 @@ def generate_html(players, files, title, min_games, trophy_count):
 
     eligible = []
     ineligible = []
+
+    # GLOBAL TOTAL GAMES MAP (FIXED CORE ISSUE)
+    total_games_map = {
+        name: sum(data["games"] for data in classes.values())
+        for name, classes in players.items()
+    }
 
     for name, classes in players.items():
 
@@ -239,12 +242,13 @@ def generate_html(players, files, title, min_games, trophy_count):
         else:
             ineligible.append(row)
 
-    # FIXED SORT (WINRATE THEN GAMES)
     eligible.sort(key=lambda x: (x[3], x[2]), reverse=True)
     ineligible.sort(key=lambda x: (x[3], x[2]), reverse=True)
 
     trophy_data, excluded = get_trophy_winners(players, files, trophy_count)
-    stream_winners = get_stream_winners(players, files, excluded, min_games)
+    stream_winners = get_stream_winners(
+        players, files, excluded, min_games, total_games_map
+    )
 
     # --------------------------------------------------
     html = f"""
@@ -295,12 +299,9 @@ tr:nth-child(even) {{ background: #fafafa; }}
 
     rank = 1
     for name, wins, games, wr, cells in eligible:
-
         html += f"<tr><td>{rank}</td><td class='name'>{name}</td><td>{wr:.1f}%</td><td>{format_score(wins)}</td><td>{games}</td>"
-
         for c in cells:
             html += f"<td>{c}</td>"
-
         html += "</tr>"
         rank += 1
 
