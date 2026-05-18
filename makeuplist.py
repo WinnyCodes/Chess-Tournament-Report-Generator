@@ -69,7 +69,6 @@ def clean_filename(path):
 # --------------------------------------------------
 def parse_files(files):
 
-    # player -> stream -> makeup bool
     attendance = defaultdict(dict)
 
     for file_name in files:
@@ -85,7 +84,6 @@ def parse_files(files):
 
             line = line.strip()
 
-            # start parsing after crosstable
             if "Cross Table" in line:
                 in_table = True
                 continue
@@ -93,24 +91,18 @@ def parse_files(files):
             if not in_table:
                 continue
 
-            # stop at footer
             if "Swiss Perfect" in line:
                 break
 
             parts = line.split()
 
-            # first token must be board number
             if not parts or not parts[0].isdigit():
                 continue
 
-            # --------------------------------------
-            # EXTRACT PLAYER NAME
-            # --------------------------------------
             name_parts = []
 
             for p in parts[1:]:
 
-                # stop when numeric tournament data starts
                 if p.replace('.', '', 1).isdigit():
                     break
 
@@ -190,12 +182,17 @@ tr:nth-child(even) {
     color: #008000;
 }
 
+.flag {
+    font-size: 12px;
+    color: #444;
+}
+
 </style>
 </head>
 
 <body>
 
-<h1>📋 Make-Up Attendance Report</h1>
+<h1>📋 Make-Up + Multi-Stream Audit Report</h1>
 
 <table>
 
@@ -212,14 +209,24 @@ tr:nth-child(even) {
 
         streams = attendance[player]
 
-        # only show students in multiple streams
-        if len(streams) < 2:
+        has_makeup = any(data["makeup"] for data in streams.values())
+        multi_stream = len(streams) > 1
+
+        # INCLUDE if either condition is true
+        if not has_makeup and not multi_stream:
             continue
 
         found = True
 
         stream_display = []
         makeup_streams = []
+        flags = []
+
+        if has_makeup:
+            flags.append("⚠ MAKE-UP TAG")
+
+        if multi_stream:
+            flags.append("MULTI-STREAM")
 
         for stream, data in sorted(streams.items()):
 
@@ -245,7 +252,10 @@ tr:nth-child(even) {
 
         html += f"""
 <tr>
-<td class="student">{player}</td>
+<td class="student">
+{player}<br>
+<span class="flag">{' | '.join(flags)}</span>
+</td>
 <td>{'<br>'.join(stream_display)}</td>
 <td>{makeup_text}</td>
 </tr>
@@ -256,7 +266,7 @@ tr:nth-child(even) {
         html += """
 <tr>
 <td colspan="3">
-No students attended multiple streams.
+No make-up or multi-stream students found.
 </td>
 </tr>
 """
@@ -267,11 +277,15 @@ No students attended multiple streams.
 <br><br>
 
 <p>
-Students listed here appeared in more than one tournament stream.
+This report includes:
+<ul>
+<li>All students tagged as make-up</li>
+<li>All students attending multiple streams</li>
+</ul>
 </p>
 
 <p>
-Streams marked in red were explicitly tagged as make-up sessions.
+Red entries indicate explicitly tagged make-up sessions.
 </p>
 
 </body>
@@ -303,7 +317,6 @@ def run_app():
 
     try:
 
-        # save beside the script
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
         output_file = os.path.join(
